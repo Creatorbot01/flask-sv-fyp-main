@@ -373,14 +373,26 @@ def dashboard():
                     box = document.createElement('div');
                     box.id = 'box-' + deviceId;
                     box.className = 'device-box';
+                    // Everything that changes on every 2s refresh lives in
+                    // #status-<id>. The limit input/button and the return-home
+                    // button are built ONCE here and never touched by innerHTML
+                    // again -- only their text/value/class get updated below.
+                    // Rebuilding an <input> via innerHTML on every refresh was
+                    // wiping out whatever the user was mid-typing (and stealing
+                    // focus), which is why the field looked like it kept
+                    // "refreshing" while entering a new limit.
                     box.innerHTML =
                         '<h3>Device ' + deviceId + '</h3>' +
-                        '<div id="info-' + deviceId + '"></div>' +
+                        '<div id="status-' + deviceId + '"></div>' +
+                        '<p><span class="label">Limit:</span> <span id="limit_display_' + deviceId + '"></span> km/h</p>' +
+                        '<input type="number" step="0.1" id="limit_input_' + deviceId + '" placeholder="New limit" style="width:80px;">' +
+                        '<button onclick="setLimit(\'' + deviceId + '\')">Set</button>' +
+                        '<br>' +
+                        '<button id="return_btn_' + deviceId + '" class="return-btn" onclick="callRiderHome(\'' + deviceId + '\')">Call Rider Home</button>' +
                         '<div class="device-map" id="map-' + deviceId + '"></div>';
                     document.getElementById('devices').appendChild(box);
 
-                    // Own small map per device, created once and never torn down
-                    // (only the text region above gets rewritten each refresh).
+                    // Own small map per device, created once and never torn down.
                     var m = L.map('map-' + deviceId, { attributionControl: false }).setView([0, 0], 2);
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                         attribution: '&copy; OpenStreetMap contributors'
@@ -404,21 +416,31 @@ def dashboard():
                     statusHtml = '<span class="status-ok">OK</span>';
                 }
 
-                var returnHtml = info.return_home
-                    ? '<button class="return-btn active" onclick="callRiderHome(\\'' + deviceId + '\\')">Return Home (ACTIVE)</button>'
-                    : '<button class="return-btn" onclick="callRiderHome(\\'' + deviceId + '\\')">Call Rider Home</button>';
-
-                document.getElementById('info-' + deviceId).innerHTML =
+                // Only this block gets rewritten every refresh -- no form
+                // controls live inside it, so nothing the user is typing
+                // anywhere else on the page is ever touched.
+                document.getElementById('status-' + deviceId).innerHTML =
                     '<p><span class="label">Status:</span> ' + statusHtml + '</p>' +
                     '<p><span class="label">Speed (GPS):</span> ' + (info.online ? d.speed_gps : '--') + ' km/h</p>' +
                     '<p><span class="label">Position:</span> ' + (info.online ? (d.lat + ', ' + d.lon) : '--') + '</p>' +
                     '<p><span class="label">Time:</span> ' + (info.online ? d.time : '--') + '</p>' +
                     '<p><span class="label">Orientation:</span> R' + (info.online ? d.roll : '--') +
-                        ' P' + (info.online ? d.pitch : '--') + ' Y' + (info.online ? d.yaw : '--') + '</p>' +
-                    '<p><span class="label">Limit:</span> ' + info.limit + ' km/h</p>' +
-                    '<input type="number" step="0.1" id="limit_input_' + deviceId + '" placeholder="New limit" style="width:80px;">' +
-                    '<button onclick="setLimit(\\'' + deviceId + '\\')">Set</button>' +
-                    '<br>' + returnHtml;
+                        ' P' + (info.online ? d.pitch : '--') + ' Y' + (info.online ? d.yaw : '--') + '</p>';
+
+                // Limit value display is just text -- update it directly,
+                // never touch the input field's own value.
+                document.getElementById('limit_display_' + deviceId).textContent = info.limit;
+
+                // Update the existing return-home button in place (class +
+                // label) instead of recreating it.
+                var returnBtn = document.getElementById('return_btn_' + deviceId);
+                if (info.return_home) {
+                    returnBtn.className = 'return-btn active';
+                    returnBtn.textContent = 'Return Home (ACTIVE)';
+                } else {
+                    returnBtn.className = 'return-btn';
+                    returnBtn.textContent = 'Call Rider Home';
+                }
 
                 if (info.online) {
                     var lat = parseFloat(d.lat);
