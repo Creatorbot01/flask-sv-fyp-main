@@ -20,7 +20,7 @@ DEFAULT_LATEST_DATA = {
     "yaw": "0"
 }
 
-DEFAULT_SPEED_LIMIT = 10.0  # default alert speed limit (km/h)
+DEFAULT_SPEED_LIMIT = 25.0  # default for a bicycle
 FALL_ROLL_THRESHOLD = 60.0   # degrees
 FALL_PITCH_THRESHOLD = 60.0  # degrees
 ALERT_COOLDOWN = 15  # seconds, gates how often Discord gets pinged
@@ -350,29 +350,15 @@ def dashboard():
         <script>
             var maps = {}; // device_id -> { map, marker, firstFix }
 
-            // device_id -> timestamp (ms) up to which the periodic refresh should
-            // leave that device's slider control alone, so a 2s dashboard refresh
-            // can't yank the handle out from under someone mid-drag.
-            var sliderBusyUntil = {};
-            var SLIDER_DEBOUNCE_MS = 5000;
-
             function setLimit(deviceId) {
-                var slider = document.getElementById('limit_input_' + deviceId);
-                var val = slider.value;
+                var input = document.getElementById('limit_input_' + deviceId);
+                var val = input.value;
                 if (!val) return;
                 var body = new URLSearchParams();
                 body.append('device_id', deviceId);
                 body.append('limit', val);
-                // Pressing Enter ends the debounce immediately -- the next refresh
-                // is free to sync the slider to the server-confirmed value.
-                delete sliderBusyUntil[deviceId];
                 fetch('/set_limit', { method: 'POST', body: body }).then(refreshData);
-            }
-
-            function updateLimitLabel(deviceId, val) {
-                sliderBusyUntil[deviceId] = Date.now() + SLIDER_DEBOUNCE_MS;
-                var label = document.getElementById('limit_val_' + deviceId);
-                if (label) label.innerText = val;
+                input.value = '';
             }
 
             function callRiderHome(deviceId) {
@@ -390,7 +376,6 @@ def dashboard():
                     box.innerHTML =
                         '<h3>Device ' + deviceId + '</h3>' +
                         '<div id="info-' + deviceId + '"></div>' +
-                        '<div id="limitctrl-' + deviceId + '"></div>' +
                         '<div class="device-map" id="map-' + deviceId + '"></div>';
                     document.getElementById('devices').appendChild(box);
 
@@ -431,22 +416,9 @@ def dashboard():
                     '<p><span class="label">Orientation:</span> R' + (info.online ? d.roll : '--') +
                         ' P' + (info.online ? d.pitch : '--') + ' Y' + (info.online ? d.yaw : '--') + '</p>' +
                     '<p><span class="label">Limit:</span> ' + info.limit + ' km/h</p>' +
+                    '<input type="number" step="0.1" id="limit_input_' + deviceId + '" placeholder="New limit" style="width:80px;">' +
+                    '<button onclick="setLimit(\\'' + deviceId + '\\')">Set</button>' +
                     '<br>' + returnHtml;
-
-                // Only touch the slider itself while the user isn't actively
-                // dragging it (or hasn't just pressed Enter) -- otherwise a
-                // refresh landing mid-drag would snap the handle back to the
-                // server's last-known value out from under them.
-                var busyUntil = sliderBusyUntil[deviceId] || 0;
-                if (Date.now() >= busyUntil) {
-                    document.getElementById('limitctrl-' + deviceId).innerHTML =
-                        '<p><span class="label">New limit:</span> ' +
-                            '<span id="limit_val_' + deviceId + '">' + info.limit + '</span> km/h</p>' +
-                        '<input type="range" min="0" max="50" step="1" value="' + info.limit + '" ' +
-                            'id="limit_input_' + deviceId + '" style="width:150px;" ' +
-                            'oninput="updateLimitLabel(\\'' + deviceId + '\\', this.value)">' +
-                        '<button onclick="setLimit(\\'' + deviceId + '\\')">Enter</button>';
-                }
 
                 if (info.online) {
                     var lat = parseFloat(d.lat);
