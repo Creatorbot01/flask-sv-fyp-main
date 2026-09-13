@@ -10,8 +10,8 @@ app = Flask(__name__)
 #  We keep one state dict per device instead of one global dict.
 # ══════════════════════════════════════════════════════════════
 DEFAULT_LATEST_DATA = {
-    "speed_wheel": 0,  # primary speed source — hall-effect wheel sensor (pending install)
     "speed_gps": 0,
+    "speed_mpu": 0,
     "lat": "0",
     "lon": "0",
     "time": "NA",
@@ -122,16 +122,13 @@ def fill_data():
     latest_data = dev["latest_data"]
 
     # ── Speed limit check ──
-    # Hall-effect wheel speed is the primary reading now (more reliable than
-    # GPS at low speed / indoors). Falls back to GPS speed if a device is
-    # still sending the old payload shape without speed_wheel.
     try:
-        speed_check = float(latest_data.get("speed_wheel", latest_data.get("speed_gps", 0)))
+        speed_gps = float(latest_data["speed_gps"])
     except (ValueError, TypeError):
-        speed_check = 0
+        speed_gps = 0
 
-    if speed_check >= dev["speed_limit"]:
-        trigger_warning(dev, f"Speed limit exceeded: {speed_check} km/h (limit {dev['speed_limit']} km/h)")
+    if speed_gps >= dev["speed_limit"]:
+        trigger_warning(dev, f"Speed limit exceeded: {speed_gps} km/h (limit {dev['speed_limit']} km/h)")
         if now - dev["last_speed_alert_time"] >= ALERT_COOLDOWN:
             dev["last_speed_alert_time"] = now
             send_discord_embed(
@@ -139,7 +136,7 @@ def fill_data():
                 description="Rider is currently over the configured speed limit.",
                 color=COLOR_WARNING,
                 fields=[
-                    {"name": "Speed (Wheel)", "value": f"{speed_check} km/h", "inline": True},
+                    {"name": "Speed (GPS)", "value": f"{speed_gps} km/h", "inline": True},
                     {"name": "Limit", "value": f"{dev['speed_limit']} km/h", "inline": True},
                     {"name": "Location", "value": f"{latest_data['lat']}, {latest_data['lon']}", "inline": False},
                 ],
@@ -205,15 +202,23 @@ def get_data():
     })
 
 
-# ── Parent clicks this on the dashboard to toggle "return home" for a rider. ──
-# No more acknowledge round-trip: the device never clears this itself, so
-# pressing the button again is what turns it back off.
+# ── ESP32 calls this once the rider acknowledges the return-home prompt ──
+@app.route("/ack_return_home", methods=["POST"])
+def ack_return_home():
+    payload = request.get_json() or {}
+    device_id = str(payload.get("device_id", "UNKNOWN"))
+    dev = get_device(device_id)
+    dev["return_home_active"] = False
+    return jsonify({"status": "ok"})
+
+
+# ── Parent clicks this on the dashboard to ask a specific rider to head home ──
 @app.route("/trigger_return_home", methods=["POST"])
 def trigger_return_home():
     device_id = str(request.form.get("device_id") or (request.get_json(silent=True) or {}).get("device_id", "UNKNOWN"))
     dev = get_device(device_id)
-    dev["return_home_active"] = not dev["return_home_active"]
-    return jsonify({"status": "ok", "return_home": dev["return_home_active"]})
+    dev["return_home_active"] = True
+    return jsonify({"status": "ok"})
 
 
 # ── Dashboard sets a new limit for one device ──
@@ -420,7 +425,7 @@ def dashboard():
 
                 document.getElementById('info-' + deviceId).innerHTML =
                     '<p><span class="label">Status:</span> ' + statusHtml + '</p>' +
-                    '<p><span class="label">Speed:</span> ' + (info.online ? d.speed_wheel : '--') + ' km/h</p>' +
+                    '<p><span class="label">Speed (GPS):</span> ' + (info.online ? d.speed_gps : '--') + ' km/h</p>' +
                     '<p><span class="label">Position:</span> ' + (info.online ? (d.lat + ', ' + d.lon) : '--') + '</p>' +
                     '<p><span class="label">Time:</span> ' + (info.online ? d.time : '--') + '</p>' +
                     '<p><span class="label">Orientation:</span> R' + (info.online ? d.roll : '--') +
