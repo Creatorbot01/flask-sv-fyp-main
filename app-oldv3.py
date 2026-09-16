@@ -421,7 +421,6 @@ def dashboard():
                 document.getElementById('info-' + deviceId).innerHTML =
                     '<p><span class="label">Status:</span> ' + statusHtml + '</p>' +
                     '<p><span class="label">Speed:</span> ' + (info.online ? d.speed_wheel : '--') + ' km/h</p>' +
-                    '<p><span class="label">Speed (GPS):</span> ' + (info.online ? d.speed_gps : '--') + ' km/h</p>' +
                     '<p><span class="label">Position:</span> ' + (info.online ? (d.lat + ', ' + d.lon) : '--') + '</p>' +
                     '<p><span class="label">Time:</span> ' + (info.online ? d.time : '--') + '</p>' +
                     '<p><span class="label">Orientation:</span> R' + (info.online ? d.roll : '--') +
