@@ -1,0 +1,472 @@
+{
+  "title": "Bicycle Dashboard",
+  "width": 1200,
+  "widgets": [
+    {
+      "id": "w1791088669575",
+      "type": "gps",
+      "name": "gps",
+      "label": "GPS coordinate",
+      "placeholder": "3.1390,101.6869",
+      "x": 20,
+      "y": 20,
+      "w": 350,
+      "h": 440,
+      "zoom": 15
+    },
+    {
+      "id": "w1791088674908",
+      "type": "meter",
+      "name": "speedHallEffect",
+      "label": "Speedometer(Main-HallEffectSensor)",
+      "placeholder": "5",
+      "x": 380,
+      "y": 20,
+      "w": 480,
+      "h": 110,
+      "max": 100,
+      "limit": 10,
+      "color": "#0f8f6b",
+      "alertColor": "#d6452b",
+      "showPercent": false
+    },
+    {
+      "id": "w1791088689323",
+      "type": "text",
+      "name": "gyroreading",
+      "label": "Gyro",
+      "placeholder": "--",
+      "x": 380,
+      "y": 250,
+      "w": 230,
+      "h": 100
+    },
+    {
+      "id": "w1791088692811",
+      "type": "text",
+      "name": "SystemStatus",
+      "label": "Status",
+      "placeholder": "--",
+      "x": 620,
+      "y": 250,
+      "w": 240,
+      "h": 100
+    },
+    {
+      "id": "w1791088716605",
+      "type": "slider",
+      "name": "limiter",
+      "label": "Speed Limit",
+      "placeholder": "",
+      "x": 380,
+      "y": 360,
+      "w": 230,
+      "h": 100,
+      "start": 0,
+      "limit": 50
+    },
+    {
+      "id": "w1791088724705",
+      "type": "button",
+      "name": "button",
+      "label": "Return Home Alert",
+      "placeholder": "",
+      "x": 620,
+      "y": 360,
+      "w": 240,
+      "h": 100,
+      "labelMode": "top",
+      "value": "1",
+      "idleValue": "0",
+      "oneshot": true,
+      "color": "#e80202",
+      "pressColor": "#15cb98",
+      "pressMs": 400
+    },
+    {
+      "id": "w1791088787078",
+      "type": "meter",
+      "name": "speedGPS",
+      "label": "Speedometer(GPS)",
+      "placeholder": "5",
+      "x": 380,
+      "y": 140,
+      "w": 480,
+      "h": 100,
+      "max": 100,
+      "limit": 10,
+      "color": "#0f8f6b",
+      "alertColor": "#d6452b",
+      "showPercent": false
+    }
+  ],
+  "variables": [
+    {
+      "name": "speedLimit",
+      "scope": "shared",
+      "initial": "10"
+    },
+    {
+      "name": "returnHome",
+      "scope": "shared",
+      "initial": "0"
+    },
+    {
+      "name": "speed",
+      "scope": "local",
+      "initial": ""
+    },
+    {
+      "name": "speedLatched",
+      "scope": "local",
+      "initial": "0"
+    },
+    {
+      "name": "alertSpeed",
+      "scope": "local",
+      "initial": ""
+    },
+    {
+      "name": "alertGPS",
+      "scope": "local",
+      "initial": ""
+    },
+    {
+      "name": "alertGyro",
+      "scope": "local",
+      "initial": ""
+    },
+    {
+      "name": "mapLink",
+      "scope": "local",
+      "initial": ""
+    }
+  ],
+  "scripts": [
+    {
+      "name": "Bicycle monitor",
+      "trigger": "data",
+      "params": [],
+      "blocks": [
+        {
+          "t": "set",
+          "var": "speed",
+          "value": "{data.speedHallEffect if isnum(data.speedHallEffect) else data.speedGPS}"
+        },
+        {
+          "t": "widget",
+          "widget": "speedHallEffect",
+          "prop": "limit",
+          "value": "{speedLimit}"
+        },
+        {
+          "t": "widget",
+          "widget": "speedGPS",
+          "prop": "limit",
+          "value": "{speedLimit}"
+        },
+        {
+          "t": "widget",
+          "widget": "limiter",
+          "prop": "value",
+          "value": "{speedLimit}"
+        },
+        {
+          "t": "if",
+          "cond": "isnum(speed) and isnum(speedLimit) and speedLimit > 0 and speed > speedLimit",
+          "then": [
+            {
+              "t": "if",
+              "cond": "speedLatched == 0",
+              "then": [
+                {
+                  "t": "set",
+                  "var": "speedLatched",
+                  "value": "1"
+                },
+                {
+                  "t": "call",
+                  "fn": "SendAlert",
+                  "args": {
+                    "AlertType": "SpeedLimitPass",
+                    "Speedometer": "{speed}",
+                    "GPS": "{data.gps}",
+                    "Gyro": "{data.gyroreading}"
+                  }
+                }
+              ],
+              "else": []
+            }
+          ],
+          "else": [
+            {
+              "t": "if",
+              "cond": "isnum(speed)",
+              "then": [
+                {
+                  "t": "set",
+                  "var": "speedLatched",
+                  "value": "0"
+                }
+              ],
+              "else": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Dashboard controls",
+      "trigger": "control",
+      "params": [],
+      "blocks": [
+        {
+          "t": "if",
+          "cond": "param.name == 'limiter'",
+          "then": [
+            {
+              "t": "set",
+              "var": "speedLimit",
+              "value": "{max(num(param.value), 1)}"
+            },
+            {
+              "t": "widget",
+              "widget": "speedHallEffect",
+              "prop": "limit",
+              "value": "{speedLimit}"
+            },
+            {
+              "t": "widget",
+              "widget": "speedGPS",
+              "prop": "limit",
+              "value": "{speedLimit}"
+            }
+          ],
+          "else": []
+        },
+        {
+          "t": "if",
+          "cond": "param.name == 'button' and num(param.value) > 0",
+          "then": [
+            {
+              "t": "set",
+              "var": "returnHome",
+              "value": "{0 if returnHome else 1}"
+            },
+            {
+              "t": "widget",
+              "widget": "button",
+              "prop": "color",
+              "value": "{'#15cb98' if returnHome else ''}"
+            },
+            {
+              "t": "widget",
+              "widget": "button",
+              "prop": "label",
+              "value": "{'Return Home Alert: ON' if returnHome else ''}"
+            }
+          ],
+          "else": []
+        }
+      ]
+    },
+    {
+      "name": "SendAlert",
+      "trigger": "function",
+      "params": [
+        "AlertType",
+        "Speedometer",
+        "GPS",
+        "Gyro"
+      ],
+      "blocks": [
+        {
+          "t": "set",
+          "var": "alertSpeed",
+          "value": "{param.Speedometer if isnum(param.Speedometer) else data.speedHallEffect if isnum(data.speedHallEffect) else data.speedGPS}"
+        },
+        {
+          "t": "set",
+          "var": "alertGPS",
+          "value": "{param.GPS if param.GPS else data.gps}"
+        },
+        {
+          "t": "set",
+          "var": "alertGyro",
+          "value": "{param.Gyro if param.Gyro else data.gyroreading}"
+        },
+        {
+          "t": "set",
+          "var": "mapLink",
+          "value": ""
+        },
+        {
+          "t": "if",
+          "cond": "len(split(alertGPS,',')) == 2 and isnum(split(alertGPS,',')[0]) and isnum(split(alertGPS,',')[1])",
+          "then": [
+            {
+              "t": "set",
+              "var": "mapLink",
+              "value": "https://www.google.com/maps?q={split(alertGPS,',')[0]},{split(alertGPS,',')[1]}"
+            }
+          ],
+          "else": []
+        },
+        {
+          "t": "if",
+          "cond": "param.AlertType == 'SpeedLimitPass'",
+          "then": [
+            {
+              "t": "discord",
+              "url": "webhook1",
+              "username": "",
+              "avatar": "",
+              "content": "@everyone",
+              "embed": {
+                "enabled": true,
+                "color": "#ff9900",
+                "title": "Speed limit exceeded",
+                "description": "{deviceName} is going faster than the speed limit.",
+                "url": "{mapLink}",
+                "author": "",
+                "footer": "{deviceName} (ID {deviceID})",
+                "thumbnail": "",
+                "image": "",
+                "timestamp": true,
+                "fields": [
+                  {
+                    "name": "Speed",
+                    "value": "{str(round(alertSpeed,1)) + ' km/h' if isnum(alertSpeed) else 'unknown'}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Limit",
+                    "value": "{speedLimit} km/h",
+                    "inline": true
+                  },
+                  {
+                    "name": "Location",
+                    "value": "{alertGPS if alertGPS != '' else 'unknown'}",
+                    "inline": true
+                  }
+                ]
+              }
+            }
+          ],
+          "else": []
+        },
+        {
+          "t": "if",
+          "cond": "param.AlertType == 'Emergency'",
+          "then": [
+            {
+              "t": "discord",
+              "url": "webhook1",
+              "username": "",
+              "avatar": "",
+              "content": "@everyone",
+              "embed": {
+                "enabled": true,
+                "color": "#d4ff00",
+                "title": "EMERGENCY PING",
+                "description": "{deviceName} pressed the emergency button. Check on the rider now.",
+                "url": "{mapLink}",
+                "author": "",
+                "footer": "{deviceName} (ID {deviceID})",
+                "thumbnail": "",
+                "image": "",
+                "timestamp": true,
+                "fields": [
+                  {
+                    "name": "Location",
+                    "value": "{alertGPS if alertGPS != '' else 'unknown'}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Speed",
+                    "value": "{str(round(alertSpeed,1)) + ' km/h' if isnum(alertSpeed) else 'unknown'}",
+                    "inline": true
+                  }
+                ]
+              }
+            }
+          ],
+          "else": []
+        },
+        {
+          "t": "if",
+          "cond": "param.AlertType == 'Crash'",
+          "then": [
+            {
+              "t": "discord",
+              "url": "webhook1",
+              "username": "",
+              "avatar": "",
+              "content": "@everyone",
+              "embed": {
+                "enabled": true,
+                "color": "#8b0000",
+                "title": "Crash detected",
+                "description": "{deviceName} reported a crash or fall.",
+                "url": "{mapLink}",
+                "author": "",
+                "footer": "{deviceName} (ID {deviceID})",
+                "thumbnail": "",
+                "image": "",
+                "timestamp": true,
+                "fields": [
+                  {
+                    "name": "Location",
+                    "value": "{alertGPS if alertGPS != '' else 'unknown'}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Speed",
+                    "value": "{str(round(alertSpeed,1)) + ' km/h' if isnum(alertSpeed) else 'unknown'}",
+                    "inline": true
+                  },
+                  {
+                    "name": "Gyro",
+                    "value": "{alertGyro if alertGyro != '' else 'n/a'}",
+                    "inline": true
+                  }
+                ]
+              }
+            }
+          ],
+          "else": []
+        },
+        {
+          "t": "if",
+          "cond": "param.AlertType not in ['SpeedLimitPass', 'Emergency', 'Crash']",
+          "then": [
+            {
+              "t": "log",
+              "value": "SendAlert: unknown AlertType '{param.AlertType}'"
+            },
+            {
+              "t": "discord",
+              "url": "webhook1",
+              "username": "",
+              "avatar": "",
+              "content": "@everyone\nSendAlert: unknown AlertType '{param.AlertType}'",
+              "embed": {
+                "enabled": false,
+                "color": "#5865f2",
+                "fields": []
+              }
+            }
+          ],
+          "else": []
+        }
+      ]
+    }
+  ],
+  "tokens": [
+    {
+      "name": "webhook1",
+      "kind": "discord",
+      "value": "https://discord.com/api/webhooks/1556166156539273299/sV-5cd1p0vRy_UWsYAEuR6YxBFYSXtFX8ourl0GdNmk3fjV3DL7ZxbFTco1xCokh5JLM"
+    }
+  ]
+}
