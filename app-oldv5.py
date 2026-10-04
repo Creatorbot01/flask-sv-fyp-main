@@ -121,8 +121,6 @@ vstate = {}   # deviceID -> {variable: value}
 wover = {}    # deviceID -> {widget: {prop: value}}  (what scripts changed on the website)
 logs = deque(maxlen=300)
 SEND_TIMES = deque(maxlen=30)
-notes = {}    # deviceID -> recent website notifications [{id, t, title, msg, level}]
-note_seq = [0]
 
 RESERVED = {"data", "param", "controls", "deviceID", "deviceName", "true", "false", "none", "i"}
 WIDGET_PROPS = ("value", "label", "visible", "color", "max", "limit")
@@ -131,7 +129,7 @@ IDENT = re.compile(r"[A-Za-z_]\w*")
 TPL = re.compile(r"\{([^{}]*)\}")
 WEBHOOK_RE = re.compile(r"^https://(?:(?:canary|ptb)\.)?(?:discord|discordapp)\.com/api(?:/v\d+)?/webhooks/\d+/[\w-]+/?$")
 BLOCK_NAMES = {"set": "Set variable", "change": "Change variable", "if": "If", "repeat": "Repeat", "widget": "Set widget",
-               "discord": "Discord webhook", "notify": "Website notification", "call": "Run function", "log": "Log"}
+               "discord": "Discord webhook", "call": "Run function", "log": "Log"}
 
 
 class ScriptError(Exception):
@@ -444,16 +442,6 @@ def exec_one(b, run):
             slot[prop] = raw if prop == "value" else fmt(raw)
     elif t == "discord":
         send_discord(b, env, run)
-    elif t == "notify":
-        if run.ctx.setdefault("notes", 0) >= MAX_SENDS_PER_RUN:
-            raise ScriptError(f"too many website notifications in one run (limit {MAX_SENDS_PER_RUN})")
-        run.ctx["notes"] += 1
-        level = b.get("level") if b.get("level") in ("info", "warning", "danger") else "warning"
-        note_seq[0] += 1
-        notes.setdefault(run.dev, deque(maxlen=20)).append({
-            "id": note_seq[0], "t": round(time.time(), 2), "level": level,
-            "title": fmt(render(b.get("title", ""), env))[:120] or "Alert", "msg": fmt(render(b.get("message", ""), env))[:300]})
-        run.log("notify", "Website notification shown")
     elif t == "call":
         fn = str(b.get("fn") or "")
         s = next((x for x in run.scripts if x.get("trigger") == "function" and x.get("name") == fn), None)
@@ -470,49 +458,16 @@ def exec_one(b, run):
         raise ScriptError(f"unknown block type '{t}'")
 
 
-def _retry_delay(e, attempt):
-    """Seconds Discord asks us to wait (body retry_after, then Retry-After header), else a growing backoff."""
-    try:
-        body = json.loads(e.read().decode("utf-8", "replace") or "{}")
-        if isinstance(body, dict) and body.get("retry_after") is not None:
-            return float(body["retry_after"])
-    except Exception:
-        pass
-    try:
-        return float(e.headers.get("Retry-After"))
-    except (TypeError, ValueError):
-        return min(2.0 ** attempt, 30.0)
-
-
 def _post_discord(url, payload, dev, src):
-    """Sends in a background thread. A 429 or 5xx is retried (up to 6 tries, 5 minutes) so an emergency ping is not lost
-    when Discord is limiting the host's shared IP. The URL never goes into the log, the browser can read it."""
-    data = json.dumps(payload).encode()
-    started = time.time()
-    for attempt in range(1, 7):
-        req = urllib.request.Request(url, data=data, method="POST",
-                                     headers={"Content-Type": "application/json", "User-Agent": "CRIntegration/1.0"})
-        try:
-            urllib.request.urlopen(req, timeout=8).close()
-            log_line(dev, src, "discord", "Discord message sent" + (f" (after {attempt} tries)" if attempt > 1 else ""))
-            return
-        except urllib.error.HTTPError as e:
-            if e.code != 429 and e.code < 500:
-                log_line(dev, src, "error", f"Discord refused the message (HTTP {e.code})")
-                return
-            wait = min(max(_retry_delay(e, attempt), 1.0), 60.0) + 0.5
-            if attempt == 6 or time.time() - started + wait > 300:
-                note = (" Discord is rate limiting this server's IP address (common on shared hosting such as Render), try again later or send through a relay."
-                        if e.code == 429 else "")
-                log_line(dev, src, "error", f"Discord message not delivered, gave up after {attempt} tries (HTTP {e.code}).{note}")
-                return
-            log_line(dev, src, "error", f"Discord said HTTP {e.code}, retrying in {wait:.0f}s (try {attempt} of 6)")
-            time.sleep(wait)
-        except Exception as e:
-            if attempt == 6:
-                log_line(dev, src, "error", f"Discord message failed: {type(e).__name__}")
-                return
-            time.sleep(min(2.0 ** attempt, 30.0))
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "CRIntegration/1.0"})
+    try:
+        urllib.request.urlopen(req, timeout=8).close()
+        log_line(dev, src, "discord", "Discord message sent")
+    except urllib.error.HTTPError as e:  # never include the URL in logs, the browser can read them
+        log_line(dev, src, "error", f"Discord refused the message (HTTP {e.code})")
+    except Exception as e:
+        log_line(dev, src, "error", f"Discord message failed: {type(e).__name__}")
 
 
 def send_discord(b, env, run):
@@ -600,7 +555,7 @@ def dev_info(i, d):
     age = time.time() - d["last"]
     return {"id": i, "name": d.get("name") or i, "online": age <= CFG["offline_after_seconds"], "age": round(age, 1),
             "last": d["last"], "data": d["data"], "raw": d["raw"],
-            "controls": {k: v["value"] for k, v in controls.get(i, {}).items()}, "widgets": wover.get(i, {}), "notes": list(notes.get(i, []))}
+            "controls": {k: v["value"] for k, v in controls.get(i, {}).items()}, "widgets": wover.get(i, {})}
 
 
 @app.route("/api/config")
@@ -620,12 +575,10 @@ def api_design():
         override["design"] = design
         vstate.clear()
         wover.clear()
-        notes.clear()
     elif request.method == "DELETE":
         override["design"] = None
         vstate.clear()
         wover.clear()
-        notes.clear()
     if override["design"]:
         return jsonify(design=public_design(override["design"]), source="uploaded")
     try:
@@ -784,9 +737,6 @@ input::placeholder{color:var(--mut);opacity:.7}.hint{color:var(--mut);padding:24
 .gr line,.gr polyline,.gr polygon{vector-effect:non-scaling-stroke}
 .gw svg{display:block}
 [data-theme=dark] .leaflet-tile{filter:invert(1) hue-rotate(180deg) brightness(.95) contrast(.9)}
-#toasts{position:fixed;top:12px;right:12px;z-index:60;display:flex;flex-direction:column;gap:8px;max-width:min(360px,calc(100vw - 24px))}
-.toast{background:var(--pn,#fff);color:var(--ink,#16242c);border:1px solid var(--ln,#ccd);border-left:6px solid #2b7bd6;border-radius:6px;padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
-.toast.warning{border-left-color:#d6882b}.toast.danger{border-left-color:#d6452b}.toast b{display:block}.toast small{opacity:.7}
 #bd,#lb{position:fixed;inset:0;background:rgba(10,18,23,.6);display:none;align-items:center;justify-content:center;z-index:2000}
 #bd.show,#lb.show{display:flex}#md,#lm{background:var(--pn);width:min(560px,92vw);border-radius:8px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.3)}
 #md pre,#lm pre{background:#101b22;color:#d6f0e6;padding:12px;border-radius:4px;max-height:50vh;overflow:auto;margin:10px 0;white-space:pre-wrap}#md h3,#lm h3{margin:0}
@@ -794,12 +744,11 @@ input::placeholder{color:var(--mut);opacity:.7}.hint{color:var(--mut);padding:24
 </style>
 <header><h1><span class="brand">CRIntegration</span><span id="ttl"></span></h1><span id="clk"></span>
 <button class="g" id="tg"></button><button class="g" onclick="up.click()">Upload design</button><button class="g" onclick="resetDesign()">Use default design</button>
-<button class="g" id="nb" onclick="enableNotify()">Enable alerts</button><button class="g" onclick="showLogic()">Logic</button><button onclick="showLast()">Last data</button><input type="file" id="up" hidden accept=".json"></header>
+<button class="g" onclick="showLogic()">Logic</button><button onclick="showLast()">Last data</button><input type="file" id="up" hidden accept=".json"></header>
 <div id="st"><span id="stl"><span class="dot"></span>No device selected</span><span id="stt"></span></div>
 <div id="side"><h3>Devices</h3><div id="dl"></div></div>
 <main><div id="grid"></div></main>
 <div id="bd" onclick="if(event.target==this)closeM()"><div id="md" role="dialog" aria-modal="true"><h3 id="mt">Last data post</h3><small id="ms"></small><pre id="mr"></pre><button onclick="closeM()">Close</button></div></div>
-<div id="toasts" aria-live="assertive"></div>
 <div id="lb" onclick="if(event.target==this)closeL()"><div id="lm" role="dialog" aria-modal="true"><h3>Variables and script log</h3><small id="ls"></small><pre id="lv"></pre><pre id="ll"></pre><button onclick="closeL()">Close</button></div></div>
 <script>
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -886,30 +835,12 @@ function paint(){const d=devs.find(x=>x.id==cur);
  $('stt').textContent=d?`Last post request ${new Date(d.last*1000).toLocaleTimeString()} (${ago(d.age)} ago)`:''}
 function side(){$('dl').innerHTML=devs.length?devs.map(d=>`<div class="dv ${d.id==cur?'s':''}" data-id="${esc(d.id)}"><span class="dot" style="background:${d.online?'var(--ok)':'var(--al)'}"></span>${esc(d.name)}<small>ID ${esc(d.id)}, ${d.online?'online':'offline'}, ${ago(d.age)} ago</small></div>`).join(''):'<small>Waiting for a device to POST to /api/data</small>';
  $('dl').querySelectorAll('.dv').forEach(e=>e.onclick=()=>{if(cur==e.dataset.id)return;cur=e.dataset.id;build();side();paint()})}
-async function poll(){try{devs=await (await fetch('/api/devices')).json();handleNotes();if(!cur&&devs.length)cur=devs[0].id;const gs=(design.widgets||[]).filter(w=>w.type=='graph');
+async function poll(){try{devs=await (await fetch('/api/devices')).json();if(!cur&&devs.length)cur=devs[0].id;const gs=(design.widgets||[]).filter(w=>w.type=='graph');
  if(cur&&gs.length)hist=await (await fetch(`/api/history/${encodeURIComponent(cur)}?keys=${gs.map(w=>encodeURIComponent(w.name)).join(',')}&n=${Math.max(...gs.map(w=>+w.points||50))}`)).json();else hist={};
  side();paint()}catch(e){}setTimeout(poll,cfg.poll_interval_ms||1000)}
 function showLast(){const d=devs.find(x=>x.id==cur);$('mt').textContent='Last data post'+(d?' from '+d.name+' (ID '+d.id+')':'');$('ms').textContent=d?new Date(d.last*1000).toLocaleString():'';
  let r=d?d.raw:'No data has been posted yet. Devices send JSON to POST /api/data.';if(d)try{r=JSON.stringify(JSON.parse(d.raw),null,2)}catch(e){}$('mr').textContent=r;$('bd').classList.add('show')}
 const closeM=()=>$('bd').classList.remove('show');
-let lastNote=null,actx=null,nOn=false;try{nOn=localStorage.getItem('crNotify')=='1'}catch(e){}
-function nlabel(){$('nb').textContent=nOn?'Alerts on':'Enable alerts';$('nb').className=nOn?'':'g'}
-function beep(level){try{if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.connect(g);g.connect(actx.destination);o.frequency.value=level=='danger'?880:620;g.gain.value=.15;o.start();o.stop(actx.currentTime+(level=='danger'?.6:.25))}catch(e){}}
-async function enableNotify(){if(nOn){nOn=false;try{localStorage.setItem('crNotify','0')}catch(e){}return nlabel()}
- try{actx=actx||new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
- let perm='unsupported';try{perm=await Notification.requestPermission()}catch(e){}
- nOn=true;try{localStorage.setItem('crNotify','1')}catch(e){}nlabel();
- if(perm!='granted')toast({level:'info',title:'Pop-up alerts are blocked',msg:'The browser did not allow system notifications, so alerts will only show inside this page.',dev:''},true);else beep('info')}
-function toast(n,quiet){const t=document.createElement('div');t.className='toast '+n.level;t.innerHTML='<b></b><span></span><small></small>';
- t.children[0].textContent=n.title;t.children[1].textContent=n.msg;t.children[2].textContent=n.dev||'';t.onclick=()=>t.remove();$('toasts').prepend(t);
- if(n.level!='danger')setTimeout(()=>t.remove(),12000);if(!quiet)beep(n.level)}
-function handleNotes(){const all=[];devs.forEach(d=>(d.notes||[]).forEach(n=>all.push({...n,dev:d.name||d.id})));
- const top=all.reduce((m,n)=>Math.max(m,n.id),0);
- if(lastNote===null){lastNote=top;return}              // do not replay old alerts on page load
- all.filter(n=>n.id>lastNote).sort((a,b)=>a.id-b.id).forEach(n=>{toast(n,!nOn);
-  if(nOn&&window.Notification&&Notification.permission=='granted'){try{new Notification(n.title,{body:n.msg+(n.dev?'\n'+n.dev:''),tag:'cr'+n.id,requireInteraction:n.level=='danger'})}catch(e){}}});
- lastNote=Math.max(lastNote,top)}
-nlabel();
 let lt;const closeL=()=>{clearInterval(lt);$('lb').classList.remove('show')};
 async function loadLogic(){if(!cur){$('ls').textContent='Select a device first, variables are kept per device.';$('lv').textContent=$('ll').textContent='';return}
  const j=await (await fetch('/api/logic/'+encodeURIComponent(cur))).json(),t=x=>new Date(x*1000).toLocaleTimeString();

@@ -317,6 +317,12 @@
           "cond": "param.AlertType == 'SpeedLimitPass'",
           "then": [
             {
+              "t": "notify",
+              "title": "Speed limit exceeded",
+              "message": "{deviceName}: {str(round(alertSpeed,1)) + ' km/h' if isnum(alertSpeed) else 'unknown'} (limit {speedLimit} km/h)",
+              "level": "warning"
+            },
+            {
               "t": "discord",
               "url": "webhook1",
               "username": "",
@@ -360,6 +366,12 @@
           "cond": "param.AlertType == 'Emergency'",
           "then": [
             {
+              "t": "notify",
+              "title": "EMERGENCY PING",
+              "message": "{deviceName} pressed the emergency button",
+              "level": "danger"
+            },
+            {
               "t": "discord",
               "url": "webhook1",
               "username": "",
@@ -397,6 +409,12 @@
           "t": "if",
           "cond": "param.AlertType == 'Crash'",
           "then": [
+            {
+              "t": "notify",
+              "title": "Crash detected",
+              "message": "{deviceName} reported a crash or fall",
+              "level": "danger"
+            },
             {
               "t": "discord",
               "url": "webhook1",

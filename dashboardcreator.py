@@ -38,7 +38,7 @@ label.fl{display:block}.mu{color:var(--mut)}code{background:var(--bg);padding:0 
 .vr{display:grid;grid-template-columns:1.2fr 1fr 1.2fr auto;gap:6px;align-items:center;margin:6px 0}.vr input,.vr select{margin:0}
 .sh{display:grid;grid-template-columns:1.4fr 1.2fr 1.4fr auto;gap:8px;align-items:end}
 .bl{background:var(--bg);border:1px solid var(--ln);border-left:4px solid var(--ac);border-radius:4px;padding:6px 8px;margin:6px 0}
-.bl[data-t=if],.bl[data-t=repeat]{border-left-color:#d6882b}.bl[data-t=discord]{border-left-color:#5865f2}.bl[data-t=widget]{border-left-color:#0f8f6b}.bl[data-t=call]{border-left-color:#8b5cf6}
+.bl[data-t=if],.bl[data-t=repeat]{border-left-color:#d6882b}.bl[data-t=discord]{border-left-color:#5865f2}.bl[data-t=widget]{border-left-color:#0f8f6b}.bl[data-t=call]{border-left-color:#8b5cf6}.bl[data-t=notify]{border-left-color:#d6452b}
 .bh{display:flex;gap:4px;align-items:center;font-weight:600;font-size:13px;margin-bottom:4px}.bh .sp{flex:1}.bh button{padding:0 7px;margin:0}
 .nest{margin:4px 0 4px 10px;padding-left:8px;border-left:2px dashed var(--ln)}.ef{display:grid;grid-template-columns:1fr 1fr auto auto;gap:6px;align-items:end}
 select.addb{width:auto;margin:6px 0 0}
@@ -143,6 +143,7 @@ const BT={
  repeat:{n:'Repeat',kids:['body'],f:[['times','Times (max 100, {i} is the round number)','text']],d:{times:'3',body:[]}},
  widget:{n:'Set website widget',f:[['widget','Widget','widget'],['prop','Property','select',WP],['value','To (blank puts it back to normal)','text',null,'Hot: {data.temp}']],d:{widget:'',prop:'value',value:''}},
  discord:{n:'Send Discord webhook',f:[['url','Webhook (token name or URL)','hook',null,'webhook1'],['username','Bot name (optional)','text'],['avatar','Avatar image URL (optional)','text'],['content','Message text','area',null,'Temperature is {data.temp}']],d:{url:'',username:'',avatar:'',content:'',embed:{enabled:false,color:'#5865f2',fields:[]}}},
+ notify:{n:'Show website notification',f:[['title','Title','text',null,'EMERGENCY'],['message','Message','text',null,'{deviceName} needs help'],['level','Level','select',[['info','Info (blue)'],['warning','Warning (orange)'],['danger','Danger (red, stays until clicked)']]]],d:{title:'',message:'',level:'warning'}},
  call:{n:'Run function',f:[['fn','Function','fn',null,null,1]],d:{fn:'',args:{}}},
  log:{n:'Log message (shown under the Logic button)',f:[['value','Message','text']],d:{value:''}}};
 const el=(t,a,...k)=>{const e=document.createElement(t);for(const[x,v]of Object.entries(a||{})){if(x.startsWith('on'))e[x]=v;else if(x=='cls')e.className=v;else if(v!==false&&v!=null)e.setAttribute(x,v===true?'':v)}k.flat(9).forEach(c=>{if(c!=null)e.append(c)});return e};
